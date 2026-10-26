@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<title>MiScan</title>
+<style>
+:root{--bg:#0b0f14;--card:#161c24;--line:#2a3340;--ac:#10b981;--tx:#e8eef5;--mu:#8a97a6;--danger:#ef4444}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top)}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#back{display:none;padding:8px 12px}
+main{flex:1;overflow:auto;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit}
+button:active{opacity:.7}
+button.p{background:var(--ac);border-color:var(--ac);color:#04130d;font-weight:700}
+button.d{color:var(--danger)}
+button.on{border-color:var(--ac);color:var(--ac)}
+input[type=text],input[type=url],textarea{width:100%;background:#0b0f14;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+textarea{height:240px}
+input[type=range]{width:100%;accent-color:var(--ac)}
+label{display:block;color:var(--mu);font-size:13px;margin:10px 0 4px}
+.row{display:flex;gap:8px;margin-top:10px}
+.row>*{flex:1}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{padding:18px 8px;text-align:center;font-size:15px}
+.tile b{display:block;font-size:26px;margin-bottom:4px}
+.bar{display:flex;gap:8px;overflow-x:auto;padding:10px 0;scrollbar-width:none}
+.bar::-webkit-scrollbar{display:none}
+.bar button{white-space:nowrap;flex:none}
+h2{font-size:14px;color:var(--mu);margin:18px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.list .it{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.list .it img{width:48px;height:62px;object-fit:cover;border-radius:6px;background:#222}
+.list .it .t{flex:1;min-width:0}
+.list .it .t div:first-child{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list .it .t div+div{color:var(--mu);font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pg{background:var(--card);border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.pg img{width:100%;display:block;aspect-ratio:3/4;object-fit:contain;background:#222}
+.pg .bt{display:flex}
+.pg .bt button{flex:1;border:0;border-radius:0;padding:8px 0;border-top:1px solid var(--line)}
+canvas#pv,canvas#cv{display:block;margin:0 auto;max-width:100%;touch-action:none;border-radius:6px}
+canvas#pv{max-height:56dvh;background:#fff}
+video{width:100%;max-height:68dvh;background:#000;border-radius:10px;object-fit:contain}
+.shutter{width:74px;height:74px;border-radius:50%;border:5px solid var(--ac);background:#f4f4f4;padding:0;flex:none}
+.cam-row{display:flex;align-items:center;justify-content:space-around;margin-top:16px}
+.modal{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;padding:16px;z-index:20}
+.box{background:var(--card);border-radius:16px;padding:16px;width:100%;max-width:520px;max-height:90dvh;overflow:auto}
+.box h3{margin:0 0 8px}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000d;border:1px solid var(--line);padding:10px 16px;border-radius:20px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:30;max-width:90%;text-align:center;font-size:14px}
+.mu{color:var(--mu);font-size:13px}
+.res{background:var(--card);border:1px solid var(--ac);border-radius:12px;padding:12px;margin-top:10px;word-break:break-all}
+.sigs{display:flex;gap:8px;overflow-x:auto;margin:8px 0}
+.sigs img{height:56px;background:#fff;border-radius:8px;padding:4px;border:2px solid transparent}
+.sigs img.on{border-color:var(--ac)}
+</style>
+</head>
+<body>
+<header>
+  <button id="back">←</button>
+  <h1 id="title">MiScan</h1>
+</header>
+<main id="main"></main>
+<div id="toast"></div>
+<input id="cam" type="file" accept="image/*" capture="environment" hidden>
+<input id="imp" type="file" accept="image/*" multiple hidden>
+<script src="app.js"></script>
+</body>
+</html>
