@@ -15,6 +15,11 @@ const cfg = {
   set: (k, v) => localStorage.setItem('ms_' + k, JSON.stringify(v))
 };
 const toast = m => { toastEl.textContent = m; toastEl.style.opacity = 1; clearTimeout(toast.t); toast.t = setTimeout(() => toastEl.style.opacity = 0, 2600); };
+const busy = async (msg, fn) => {
+  const b = $('#busy'); $('#busyt').textContent = msg; b.classList.add('show');
+  await new Promise(r => requestAnimationFrame(() => setTimeout(r, 20)));
+  try { return await fn(); } finally { b.classList.remove('show'); }
+};
 const on = (el, fn) => { el.onclick = async e => { try { await fn(e); } catch (err) { console.error(err); toast('Error: ' + err.message); } }; };
 window.addEventListener('unhandledrejection', e => toast('Error: ' + (e.reason && e.reason.message || e.reason)));
 
@@ -86,7 +91,7 @@ async function hydrate(raw) {
 const newPage = (base, filter = 'magic') => ({ id: uid(), base, blob: null, filter, bright: 0, contr: 0, sigs: [], stamps: [], ocr: null, filtered: null, hist: [] });
 
 // ---------- procesamiento de imagen ----------
-function toCanvas(src, w, hh, max = 2600) {
+function toCanvas(src, w, hh, max = 2200) {
   const k = Math.min(1, max / Math.max(w, hh));
   const c = cv(Math.round(w * k), Math.round(hh * k));
   c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
@@ -98,6 +103,8 @@ async function fileToCanvas(f) {
   catch { bm = await loadImg(URL.createObjectURL(f)); }
   return toCanvas(bm, bm.width, bm.height);
 }
+
+const shrink = (c, max) => Math.max(c.width, c.height) <= max ? c : toCanvas(c, c.width, c.height, max);
 
 // homografía cuadrado unitario -> cuadrilátero (Heckbert)
 function homography(q) {
@@ -119,7 +126,7 @@ function homography(q) {
 function warp(src, q) {
   const dist = (p, r) => Math.hypot(p.x - r.x, p.y - r.y);
   let w = Math.max(dist(q[0], q[1]), dist(q[3], q[2])), hh = Math.max(dist(q[0], q[3]), dist(q[1], q[2]));
-  const m = Math.max(w, hh); if (m > 2400) { w *= 2400 / m; hh *= 2400 / m; }
+  const m = Math.max(w, hh); if (m > 2000) { w *= 2000 / m; hh *= 2000 / m; }
   w = Math.max(2, Math.round(w)); hh = Math.max(2, Math.round(hh));
   const sw = src.width, sh = src.height;
   const sd = src.getContext('2d').getImageData(0, 0, sw, sh).data;
@@ -240,8 +247,9 @@ function process(base, f, br = 0, ct = 0) {
   return out;
 }
 // imagen final = filtro + firmas + marcas
-function final(p) {
-  const f = p.filtered || (p.filtered = process(p.base, p.filter, p.bright, p.contr));
+function final(p, full) {
+  const f = full ? (p.filtered || (p.filtered = process(p.base, p.filter, p.bright, p.contr)))
+    : (p.fprev || (p.fprev = process(p.prev || (p.prev = shrink(p.base, 1100)), p.filter, p.bright, p.contr)));
   const o = cv(f.width, f.height), c = o.getContext('2d'); c.drawImage(f, 0, 0);
   const W = o.width, Hh = o.height;
   for (const s of p.sigs) { const w = s.w * W, hh = w * s.img.height / s.img.width; c.drawImage(s.img, s.x * W - w / 2, s.y * Hh - hh / 2, w, hh); }
@@ -269,7 +277,7 @@ let worker = null, ocrProg = null;
 async function ocrPage(p) {
   await loadScript(CDN.tess);
   if (!worker) worker = await Tesseract.createWorker('spa+eng', 1, { logger: m => { if (ocrProg && m.status) ocrProg(m.status + ' ' + Math.round((m.progress || 0) * 100) + '%'); } });
-  const f = final(p), { data } = await worker.recognize(f);
+  const f = final(p, true), { data } = await worker.recognize(f);
   p.ocr = { text: data.text.trim(), W: f.width, H: f.height,
     words: (data.words || []).filter(w => w.text.trim()).map(w => ({ t: w.text, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1 })) };
   return p.ocr;
@@ -278,7 +286,7 @@ async function buildPDF(doc, searchable) {
   await loadScript(CDN.pdf);
   const { jsPDF } = window.jspdf; let pdf;
   for (let i = 0; i < doc.pages.length; i++) {
-    const p = doc.pages[i], f = final(p);
+    const p = doc.pages[i], f = final(p, true);
     if (searchable && (!p.ocr || p.ocr.W !== f.width)) { toast('Reconociendo texto ' + (i + 1) + '/' + doc.pages.length); await ocrPage(p); }
     const PW = 595, PH = PW * f.height / f.width, s = PW / f.width, o = PH > PW ? 'p' : 'l';
     if (!pdf) pdf = new jsPDF({ unit: 'pt', format: [PW, PH], orientation: o, compress: true }); else pdf.addPage([PW, PH], o);
@@ -401,8 +409,7 @@ function cropView(src) {
   on($('#all'), () => { setNorm([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]); draw(); });
   on($('#rot'), () => { img = rotate90(img); layout(); setNorm(inset); draw(); setTimeout(runAuto, 30); });
   on($('#ok'), async () => {
-    toast('Procesando…'); await new Promise(r => setTimeout(r, 30));
-    const base = warp(img, q.map(p => ({ x: p.x / k, y: p.y / k })));
+    const base = await busy('Procesando…', () => warp(img, q.map(p => ({ x: p.x / k, y: p.y / k }))));
     await afterCrop(base);
   });
 }
@@ -431,7 +438,8 @@ function editView(p) {
   main.append(h(`<div class="row"><button id="add">＋ Otra página</button><button id="done" class="p">Listo</button></div>`));
   const pv = $('#pv');
   const refresh = redo => {
-    if (redo) p.filtered = null;
+    if (redo) { p.filtered = p.fprev = null; }
+    p.thumb = null;
     const f = final(p); pv.width = f.width; pv.height = f.height; pv.getContext('2d').drawImage(f, 0, 0);
   };
   const fb = $('#fb');
@@ -444,7 +452,7 @@ function editView(p) {
   let tm; const slide = () => { p.bright = +$('#rb').value; p.contr = +$('#rc').value; clearTimeout(tm); tm = setTimeout(() => refresh(true), 150); };
   $('#rb').oninput = slide; $('#rc').oninput = slide;
   on($('#t-adj'), () => { const a = $('#adj'); a.style.display = a.style.display === 'none' ? '' : 'none'; });
-  on($('#t-rot'), () => { p.base = rotate90(p.base); p.blob = null; p.ocr = null; p.sigs = []; p.stamps = []; p.hist = []; refresh(true); });
+  on($('#t-rot'), () => { p.base = rotate90(p.base); p.prev = null; p.blob = null; p.ocr = null; p.sigs = []; p.stamps = []; p.hist = []; refresh(true); });
   on($('#t-sig'), () => sigModal(p));
   on($('#t-mk'), () => markModal(p));
   on($('#t-ocr'), () => ocrModal(p));
@@ -516,16 +524,16 @@ async function ocrModal(p) {
   $('#cp', m).onclick = async () => { await navigator.clipboard.writeText($('#tx', m).value); toast('Copiado'); };
   ocrProg = s => { const e = $('#st', m); if (e) e.textContent = s; };
   try {
-    const f = final(p);
-    const o = p.ocr && p.ocr.W === f.width ? p.ocr : await ocrPage(p);
+    const o = p.ocr && p.ocr.W === p.base.width ? p.ocr : await ocrPage(p);
     $('#tx', m).value = o.text; $('#st', m).textContent = 'Listo (' + o.words.length + ' palabras)';
   } catch (e) { $('#st', m).textContent = 'Error: ' + e.message; }
 }
 
 // ---------- documento ----------
 function thumb(p) {
+  if (p.thumb) return p.thumb;
   const f = final(p), k = Math.min(1, 360 / f.width), t = cv(Math.round(f.width * k), Math.round(f.height * k));
-  t.getContext('2d').drawImage(f, 0, 0, t.width, t.height); return t.toDataURL('image/jpeg', .6);
+  t.getContext('2d').drawImage(f, 0, 0, t.width, t.height); return p.thumb = t.toDataURL('image/jpeg', .6);
 }
 function docView() {
   const d = S.doc; view(d.name, homeView);
@@ -555,14 +563,14 @@ function docView() {
   main.append(h(`<div class="row"><button id="ren">✏️ Renombrar</button><button id="del" class="d">Eliminar documento</button></div>`));
   const safe = () => d.name.replace(/[^\w\-áéíóúñ ]+/g, '').trim().replace(/\s+/g, '_') || 'escaneo';
   on($('#ap'), () => cameraView('doc')); on($('#ai'), () => inputs.imp.click());
-  const pdf = async share => { toast('Generando PDF…'); await saveOrShare(await buildPDF(d, $('#srch').checked), safe() + '.pdf', share); await saveDoc(d); };
+  const pdf = async share => { const blob = await busy('Generando PDF…', () => buildPDF(d, $('#srch').checked)); await saveOrShare(blob, safe() + '.pdf', share); await saveDoc(d); };
   on($('#x-pdf'), () => pdf(false)); on($('#x-sh'), () => pdf(true));
-  on($('#x-img'), async () => { for (let i = 0; i < d.pages.length; i++) { download(await toBlob(final(d.pages[i]), 'image/jpeg', .92), safe() + '_' + (i + 1) + '.jpg'); await new Promise(r => setTimeout(r, 300)); } });
+  on($('#x-img'), async () => { for (let i = 0; i < d.pages.length; i++) { download(await toBlob(final(d.pages[i], true), 'image/jpeg', .92), safe() + '_' + (i + 1) + '.jpg'); await new Promise(r => setTimeout(r, 300)); } });
   const allText = async () => {
     const out = [];
     for (let i = 0; i < d.pages.length; i++) {
-      const p = d.pages[i], f = final(p);
-      if (!p.ocr || p.ocr.W !== f.width) { toast('Reconociendo ' + (i + 1) + '/' + d.pages.length); await ocrPage(p); }
+      const p = d.pages[i];
+      if (!p.ocr || p.ocr.W !== p.base.width) { toast('Reconociendo ' + (i + 1) + '/' + d.pages.length); await ocrPage(p); }
       out.push(p.ocr.text);
     }
     await saveDoc(d); return out;
@@ -583,58 +591,97 @@ async function qrView() {
   view('Códigos', homeView);
   let paused = false, last = { v: '', t: 0 };
   main.append(h('<video id="vd" playsinline muted autoplay style="max-height:42dvh"></video>'));
+  main.append(h('<p class="mu" id="qst" style="text-align:center">Abriendo cámara…</p>'));
   main.append(h(`<div class="row"><button id="cont" class="${cfg.get('cont', true) ? 'on' : ''}">🔁 Continuo</button><button id="fromimg">🖼️ Desde imagen</button></div>`));
   main.append(h('<div id="res"></div>'));
   main.append(h(`<div class="row"><button id="csv">⬇️ CSV</button><button id="clr" class="d">Limpiar historial</button></div>`));
   main.append(h('<h2>Historial</h2><div class="list" id="hist"></div>'));
   const renderHist = () => {
-    const hs = cfg.get('scans', []), box = $('#hist'); box.innerHTML = hs.length ? '' : '<p class="mu">Sin escaneos.</p>';
+    const box = $('#hist'); if (!box) return;
+    const hs = cfg.get('scans', []); box.innerHTML = hs.length ? '' : '<p class="mu">Sin escaneos.</p>';
     hs.slice(0, 50).forEach(s => box.append(h(`<div class="it"><div class="t"><div>${esc(s.v)}</div><div>${esc(s.fmt)} · ${fmtDate(s.ts)}</div></div></div>`)));
   };
   renderHist();
   const found = async (v, fmt) => {
+    const box = $('#res'); if (!box) return;
     const now = Date.now(), cont = cfg.get('cont', true);
     if (v === last.v && now - last.t < 2500) return; last = { v, t: now };
     const item = { v, fmt, ts: now }; cfg.set('scans', [item, ...cfg.get('scans', [])].slice(0, 500));
     if (navigator.vibrate) navigator.vibrate(60);
     const isUrl = /^https?:\/\//i.test(v);
-    $('#res').innerHTML = ''; const r = h(`<div class="res"><div class="mu">${esc(fmt)}</div><div>${esc(v)}</div>
-      <div class="row"><button id="cp">Copiar</button>${isUrl ? '<button id="op">Abrir</button>' : ''}</div></div>`); $('#res').append(r);
+    box.innerHTML = ''; const r = h(`<div class="res"><div class="mu">${esc(fmt)}</div><div>${esc(v)}</div>
+      <div class="row"><button id="cp">Copiar</button>${isUrl ? '<button id="op">Abrir</button>' : ''}</div></div>`); box.append(r);
     on($('#cp', r), async () => { await navigator.clipboard.writeText(v); toast('Copiado'); });
     if (isUrl) on($('#op', r), () => window.open(v, '_blank', 'noopener'));
     renderHist();
     const hook = cfg.get('hook', ''); if (hook) fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) }).catch(() => toast('No se pudo enviar al webhook'));
     if (!cont) paused = true;
   };
-  const detector = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 'upc_a', 'upc_e', 'itf', 'data_matrix', 'pdf417', 'aztec'] }) : null;
-  const decodeCanvas = async c => {
-    if (detector) { const r = await detector.detect(c); return r[0] ? [r[0].rawValue, r[0].format] : null; }
-    await loadScript(CDN.qr); const id = c.getContext('2d').getImageData(0, 0, c.width, c.height), q = jsQR(id.data, id.width, id.height); return q ? [q.data, 'qr_code'] : null;
+  // detector nativo si el navegador lo trae; si no, jsQR (solo QR)
+  let detector = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      const sup = BarcodeDetector.getSupportedFormats ? await BarcodeDetector.getSupportedFormats() : [];
+      const want = ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'code_93', 'upc_a', 'upc_e', 'itf', 'data_matrix', 'pdf417', 'aztec'];
+      const use = sup.length ? want.filter(f => sup.includes(f)) : want;
+      detector = use.length ? new BarcodeDetector({ formats: use }) : null;
+    } catch { detector = null; }
+  }
+  if (!detector) loadScript(CDN.qr).catch(() => toast('Para leer códigos hace falta internet la primera vez'));
+  const small = cv(1, 1);
+  const decode = async (src, max = 640) => {
+    if (detector) {
+      try { const r = await detector.detect(src); return r[0] ? [r[0].rawValue, r[0].format] : null; }
+      catch (e) { if (e && e.name === 'NotSupportedError') detector = null; else throw e; }
+    }
+    await loadScript(CDN.qr);
+    const sw = src.videoWidth || src.width, sh = src.videoHeight || src.height; if (!sw || !sh) return null;
+    const k = Math.min(1, max / Math.max(sw, sh)), nw = Math.round(sw * k), nh = Math.round(sh * k);
+    if (small.width !== nw || small.height !== nh) { small.width = nw; small.height = nh; }
+    const x = small.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, nw, nh);
+    const id = x.getImageData(0, 0, nw, nh), q = jsQR(id.data, nw, nh);
+    return q ? [q.data, 'qr_code'] : null;
   };
   on($('#cont'), () => { const v = !cfg.get('cont', true); cfg.set('cont', v); $('#cont').classList.toggle('on', v); paused = false; });
-  on($('#csv'), () => { const hs = cfg.get('scans', []); download(new Blob(['\ufeffvalor,formato,fecha\n' + hs.map(s => '"' + s.v.replace(/"/g, '""') + '",' + s.fmt + ',' + new Date(s.ts).toISOString()).join('\n')], { type: 'text/csv' }), 'codigos.csv'); });
+  on($('#csv'), () => { const hs = cfg.get('scans', []); download(new Blob(['﻿valor,formato,fecha\n' + hs.map(s => '"' + s.v.replace(/"/g, '""') + '",' + s.fmt + ',' + new Date(s.ts).toISOString()).join('\n')], { type: 'text/csv' }), 'codigos.csv'); });
   on($('#clr'), () => { if (confirm('¿Borrar historial?')) { cfg.set('scans', []); renderHist(); } });
   on($('#fromimg'), () => {
     const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
-    i.onchange = async () => { const f = i.files[0]; if (!f) return; const r = await decodeCanvas(await fileToCanvas(f)); r ? found(r[0], r[1]) : toast('No se encontró ningún código'); };
+    i.onchange = async () => {
+      const f = i.files[0]; if (!f) return;
+      try { const r = await decode(await fileToCanvas(f), 1600); r ? found(r[0], r[1]) : toast('No se encontró ningún código'); }
+      catch (e) { toast('Error al leer la imagen: ' + e.message); }
+    };
     i.click();
   });
-  const vd = $('#vd');
-  try { S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }); vd.srcObject = S.stream; await vd.play(); }
-  catch { return toast('No se pudo abrir la cámara (necesita https). Usa "Desde imagen".'); }
-  const tmp = cv(1, 1); let busy = false;
-  const loop = async () => {
+  const vd = $('#vd'), st = $('#qst');
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { const e = new Error('sin cámara'); e.name = 'NotSupportedError'; throw e; }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    if (!vd.isConnected) { stream.getTracks().forEach(t => t.stop()); return; }
+    S.stream = stream; vd.srcObject = stream; await vd.play(); st.textContent = 'Apunta al código';
+  } catch (e) {
+    st.textContent = e.name === 'NotAllowedError' ? 'Permiso de cámara denegado. Actívalo en Chrome (candado de la barra de direcciones → Permisos) o usa "Desde imagen".'
+      : e.name === 'NotFoundError' ? 'No se encontró cámara. Usa "Desde imagen".'
+      : 'No se pudo abrir la cámara (' + (e.name || 'error') + '). Usa "Desde imagen".';
+    vd.style.display = 'none'; return;
+  }
+  let working = false, lastT = 0;
+  const loop = async t => {
     S.raf = requestAnimationFrame(loop);
-    if (busy || paused || vd.readyState < 2) return; busy = true;
-    try {
-      tmp.width = vd.videoWidth; tmp.height = vd.videoHeight; tmp.getContext('2d').drawImage(vd, 0, 0);
-      const r = await decodeCanvas(tmp); if (r) await found(r[0], r[1]);
-    } catch { } busy = false;
+    if (working || paused || vd.readyState < 2 || t - lastT < 130) return;
+    lastT = t; working = true;
+    try { const r = await decode(vd); if (r) await found(r[0], r[1]); } catch { }
+    working = false;
   };
-  vd.onclick = () => { paused = false; $('#res').innerHTML = ''; };
-  loop();
+  vd.onclick = () => { paused = false; const b = $('#res'); if (b) b.innerHTML = ''; };
+  S.raf = requestAnimationFrame(loop);
 }
 
 // ---------- arranque ----------
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  const had = !!navigator.serviceWorker.controller; let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !reloaded) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js').catch(() => { });
+}
 homeView();

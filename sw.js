@@ -1,4 +1,4 @@
-const V = 'miscan-v1';
+const V = 'miscan-v2';
 const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
@@ -7,8 +7,13 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const r = e.request; if (r.method !== 'GET') return;
   const same = new URL(r.url).origin === location.origin;
-  e.respondWith(caches.match(r).then(hit => {
-    const net = fetch(r).then(res => { if (res.ok) { const cp = res.clone(); caches.open(V).then(c => c.put(r, cp)); } return res; }).catch(() => hit);
-    return same ? (hit || net) : (hit || net); // primero caché; las librerías (tesseract, jsPDF) quedan offline tras la primera vez
-  }));
+  if (same) {
+    // archivos de la app: red primero (siempre la última versión), caché si no hay internet
+    const req = r.mode === 'navigate' ? r : new Request(r, { cache: 'no-cache' });
+    e.respondWith(fetch(req).then(res => { if (res.ok) { const cp = res.clone(); caches.open(V).then(c => c.put(r, cp)); } return res; })
+      .catch(() => caches.match(r, { ignoreSearch: true })));
+  } else {
+    // librerías externas (tesseract, jsPDF, jsQR): caché primero, quedan disponibles sin internet
+    e.respondWith(caches.match(r).then(hit => hit || fetch(r).then(res => { if (res.ok) { const cp = res.clone(); caches.open(V).then(c => c.put(r, cp)); } return res; })));
+  }
 });

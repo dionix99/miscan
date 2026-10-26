@@ -17,7 +17,13 @@ header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text
 #back{display:none;padding:8px 12px}
 main{flex:1;overflow:auto;padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
 button{background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit}
+button{touch-action:manipulation;user-select:none;-webkit-user-select:none}
 button:active{opacity:.7}
+main{overscroll-behavior:contain}
+#busy{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:40;font-size:15px}
+#busy.show{display:flex}
+#busy i{width:34px;height:34px;border:4px solid var(--line);border-top-color:var(--ac);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 button.p{background:var(--ac);border-color:var(--ac);color:#04130d;font-weight:700}
 button.d{color:var(--danger)}
 button.on{border-color:var(--ac);color:var(--ac)}
@@ -67,6 +73,7 @@ video{width:100%;max-height:68dvh;background:#000;border-radius:10px;object-fit:
 </header>
 <main id="main"></main>
 <div id="toast"></div>
+<div id="busy"><i></i><span id="busyt"></span></div>
 <input id="cam" type="file" accept="image/*" capture="environment" hidden>
 <input id="imp" type="file" accept="image/*" multiple hidden>
 <script src="app.js"></script>
