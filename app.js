@@ -304,7 +304,18 @@ function stopCam() { cancelAnimationFrame(S.raf); if (S.stream) { S.stream.getTr
 function view(title, back) {
   stopCam(); S.placing = null; titleEl.textContent = title; S.back = back || null;
   backBtn.style.display = back ? '' : 'none'; main.innerHTML = ''; main.scrollTop = 0;
+  // un solo registro en el historial mientras no estemos en el inicio: así el botón/gesto Atrás del celular vuelve una pantalla
+  if (back && !S.pushed) { history.pushState({ ms: 1 }, ''); S.pushed = true; }
+  else if (!back && S.pushed) { S.pushed = false; S.ignore = true; history.back(); }
 }
+window.addEventListener('popstate', () => {
+  if (S.ignore) { S.ignore = false; return; }
+  S.pushed = false;
+  const m = document.querySelector('.modal');
+  if (m) { m.remove(); history.pushState({ ms: 1 }, ''); S.pushed = true; return; } // Atrás cierra el diálogo abierto
+  if (S.placing) { S.placing = null; toast('Cancelado'); history.pushState({ ms: 1 }, ''); S.pushed = true; return; }
+  if (S.back) S.back();
+});
 backBtn.onclick = () => S.back && S.back();
 const ensureDoc = () => { if (!S.doc) S.doc = { id: uid(), name: 'Escaneo ' + fmtDate(Date.now()), created: Date.now(), pages: [] }; return S.doc; };
 const inputs = { cam: $('#cam'), imp: $('#imp') };
